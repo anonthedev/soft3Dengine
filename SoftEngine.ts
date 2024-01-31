@@ -1,6 +1,12 @@
 ///<reference path="babylon.math.ts"/>
 
 module SoftEngine {
+  export interface Face {
+    A: number;
+    B: number;
+    C: number;
+  }
+
   export class Camera {
     Position: BABYLON.Vector3;
     Target: BABYLON.Vector3;
@@ -15,9 +21,11 @@ module SoftEngine {
     Position: BABYLON.Vector3;
     Rotation: BABYLON.Vector3;
     Vertices: BABYLON.Vector3[];
+    Faces: Face[];
 
-    constructor(public name: string, verticesCount: number) {
+    constructor(public name: string, verticesCount: number, faceCount: number) {
       this.Vertices = new Array(verticesCount);
+      this.Faces = new Array(faceCount);
       this.Rotation = BABYLON.Vector3.Zero();
       this.Position = BABYLON.Vector3.Zero();
     }
@@ -60,7 +68,7 @@ module SoftEngine {
     public putPixel(x: number, y: number, color: BABYLON.Color4): void {
       this.backbufferdata = this.backbuffer.data;
       let index: number = ((x >> 0) + (y >> 0) * this.workingWidth) * 4;
-    //   console.log("putting pixel")
+      //   console.log("putting pixel")
 
       this.backbufferdata[index] = color.r * 255;
       this.backbufferdata[index + 1] = color.g * 255;
@@ -74,8 +82,8 @@ module SoftEngine {
     ): BABYLON.Vector2 {
       let point = BABYLON.Vector3.TransformCoordinates(coord, transMat);
 
-      let x = point.x * this.workingWidth + this.workingWidth / 2.0 >> 0;
-      var y = -point.y * this.workingHeight + this.workingHeight / 2.0 >> 0;
+      let x = (point.x * this.workingWidth + this.workingWidth / 2.0) >> 0;
+      var y = (-point.y * this.workingHeight + this.workingHeight / 2.0) >> 0;
 
       return new BABYLON.Vector2(x, y);
     }
@@ -88,6 +96,32 @@ module SoftEngine {
         point.y < this.workingHeight
       ) {
         this.putPixel(point.x, point.y, new BABYLON.Color4(0, 1, 0, 1));
+      }
+    }
+
+    public drawBLine(point0: BABYLON.Vector2, point1: BABYLON.Vector2): void {
+      let x0 = point0.x >> 0;
+      let y0 = point0.y >> 0;
+      let x1 = point1.x >> 0;
+      let y1 = point1.y >> 0;
+      let dx = Math.abs(x1 - x0);
+      let dy = Math.abs(y1 - y0);
+      let sx = x0 < x1 ? 1 : -1;
+      let sy = y0 < y1 ? 1 : -1;
+      let err = dx - dy;
+
+      while (true) {
+        this.drawPoint(new BABYLON.Vector2(x0, y0));
+        if (x0 == x1 && y0 == y1) break;
+        let e2 = 2 * err;
+        if (e2 > -dy) {
+          err -= dy;
+          x0 += sx;
+        }
+        if (e2 < dx) {
+          err += dx;
+          y0 += sy;
+        }
       }
     }
 
@@ -120,12 +154,19 @@ module SoftEngine {
 
         let transformMat = worldMat.multiply(viewMat).multiply(projectionMat);
 
-        for (let iVertices = 0; iVertices < cMesh.Vertices.length; iVertices++) {
-          let projectedPoint = this.project(
-            cMesh.Vertices[iVertices],
-            transformMat
-          );
-          this.drawPoint(projectedPoint);
+        for (let j = 0; j < cMesh.Faces.length; j++) {
+          let currentFace = cMesh.Faces[j];
+          let vertexA = cMesh.Vertices[currentFace.A];
+          let vertexB = cMesh.Vertices[currentFace.B];
+          let vertexC = cMesh.Vertices[currentFace.C];
+
+          let pixelA = this.project(vertexA, transformMat);
+          let pixelB = this.project(vertexB, transformMat);
+          let pixelC = this.project(vertexC, transformMat);
+
+          this.drawBLine(pixelA, pixelB);
+          this.drawBLine(pixelB, pixelC);
+          this.drawBLine(pixelC, pixelA);
         }
       }
     }
