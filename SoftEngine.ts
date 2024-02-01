@@ -97,7 +97,7 @@ module SoftEngine {
         point.x < this.workingWidth &&
         point.y < this.workingHeight
       ) {
-        this.putPixel(point.x, point.y, new BABYLON.Color4(0, 1, 0, 1));
+        this.putPixel(point.x, point.y, new BABYLON.Color4(1, 1, 0, 1));
       }
     }
 
