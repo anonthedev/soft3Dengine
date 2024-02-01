@@ -21,6 +21,7 @@ module SoftEngine {
     Position: BABYLON.Vector3;
     Rotation: BABYLON.Vector3;
     Vertices: BABYLON.Vector3[];
+    UVs: BABYLON.Vector2[];
     Faces: Face[];
 
     constructor(public name: string, verticesCount: number, faceCount: number) {
@@ -28,6 +29,7 @@ module SoftEngine {
       this.Faces = new Array(faceCount);
       this.Rotation = BABYLON.Vector3.Zero();
       this.Position = BABYLON.Vector3.Zero();
+      this.UVs = new Array(verticesCount)
     }
   }
 
@@ -153,7 +155,7 @@ module SoftEngine {
         );
 
         let transformMat = worldMat.multiply(viewMat).multiply(projectionMat);
-
+        // console.log(cMesh)
         for (let j = 0; j < cMesh.Faces.length; j++) {
           let currentFace = cMesh.Faces[j];
           let vertexA = cMesh.Vertices[currentFace.A];
@@ -169,6 +171,87 @@ module SoftEngine {
           this.drawBLine(pixelC, pixelA);
         }
       }
+    }
+
+    public LoadJSONFileAsync(
+      filename: string,
+      callback: (result: Mesh[]) => any
+    ): void {
+      let jsonObject = {};
+      let xmlhttp = new XMLHttpRequest();
+      xmlhttp.open("GET", filename, true);
+      let that = this;
+      xmlhttp.onreadystatechange = function () {
+        if (xmlhttp.readyState == 4 && xmlhttp.status == 200) {
+          jsonObject = JSON.parse(xmlhttp.responseText);
+          callback(that.CreateMeshesFromJSON(jsonObject));
+        }
+      };
+      xmlhttp.send(null);
+    }
+
+    private CreateMeshesFromJSON(jsonObject): Mesh[] {
+      let meshes: Mesh[] = [];
+      // console.log(jsonObject);
+      for (let meshI = 0; meshI < jsonObject.meshes.length; meshI++) {
+        let verticesArr: number[] = jsonObject.meshes[meshI].positions;
+        let indicesArr: number[] = jsonObject.meshes[meshI].indices;
+        let uvCount: number = jsonObject.meshes[meshI].uvs.length / 2;
+        let uvArr: number[] = jsonObject.meshes[meshI].uvs;
+        let verticesStep = 3;
+        // console.log(jsonObject.meshes[meshI].positions.len)
+        // switch (uvCount) {
+        //   case 0:
+        //     verticesStep = 6;
+        //     break;
+        //   case 1:
+        //     verticesStep = 8;
+        //     break;
+        //   case 2:
+        //     verticesStep = 10;
+        //     break;
+        // }
+
+        console.log(verticesArr);
+
+        let vertexCount = verticesArr.length / verticesStep;
+        let faceCount = indicesArr.length / 3;
+        let mesh = new SoftEngine.Mesh(
+          jsonObject.meshes[meshI].name,
+          vertexCount,
+          faceCount
+        );
+
+        for (let i = 0; i < vertexCount; i++) {
+          var x = verticesArr[i * verticesStep];
+          var y = verticesArr[i * verticesStep + 1];
+          var z = verticesArr[i * verticesStep + 2];
+          mesh.Vertices[i] = new BABYLON.Vector3(x, y, z);
+        }
+
+        for (let i = 0; i < faceCount; i++) {
+          let A = indicesArr[i * 3];
+          var B = indicesArr[i * 3 + 1];
+          var C = indicesArr[i * 3 + 2];
+
+          mesh.Faces[i] = {
+            A,
+            B,
+            C,
+          };
+        }
+
+        for (let i = 0; i < vertexCount; i++) {
+          var u = uvArr[i * 2];
+          var v = uvArr[i * 2 + 1];
+          mesh.UVs[i] = new BABYLON.Vector2(u, v);
+        }
+
+        let position = jsonObject.meshes[meshI].position;
+        mesh.Position = new BABYLON.Vector3(position[0], position[1], position[2]);
+        meshes.push(mesh);
+      }
+      return meshes;
     }
   }
 }
