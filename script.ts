@@ -27,9 +27,10 @@ function loadJSONCompleted(meshesLoaded: SoftEngine.Mesh[]) {
 function drawingLoop() {
   device.clear();
 
+  // mesh.Rotation.y = 0.05;
+
   for (let i = 0; i < meshes.length; i++) {
-    // meshes[i].Rotation.x += 0.01;
-    meshes[i].Rotation.y += 0.01;
+    meshes[i].Rotation.y += 0.002;
   }
 
   device.render(camera, meshes);

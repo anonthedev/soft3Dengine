@@ -7,6 +7,20 @@ module SoftEngine {
     C: number;
   }
 
+  export interface Vertex {
+    Normal: BABYLON.Vector3;
+    Coordinates: BABYLON.Vector3;
+    WorldCoordinates: BABYLON.Vector3;
+  }
+
+  export interface ScanLineData {
+    currentY?: number;
+    ndotla?: number;
+    ndotlb?: number;
+    ndotlc?: number;
+    ndotld?: number;
+  }
+
   export class Camera {
     Position: BABYLON.Vector3;
     Target: BABYLON.Vector3;
@@ -20,7 +34,7 @@ module SoftEngine {
   export class Mesh {
     Position: BABYLON.Vector3;
     Rotation: BABYLON.Vector3;
-    Vertices: BABYLON.Vector3[];
+    Vertices: Vertex[];
     UVs: BABYLON.Vector2[];
     Faces: Face[];
 
@@ -65,7 +79,7 @@ module SoftEngine {
       );
 
       for (let i = 0; i < this.depthbuffer.length; i++) {
-        this.depthbuffer[i] = 1000000;
+        this.depthbuffer[i] = 10000000;
       }
     }
 
@@ -94,15 +108,33 @@ module SoftEngine {
     }
 
     public project(
-      coord: BABYLON.Vector3,
-      transMat: BABYLON.Matrix
-    ): BABYLON.Vector3 {
-      let point = BABYLON.Vector3.TransformCoordinates(coord, transMat);
+      vertex: Vertex,
+      transMat: BABYLON.Matrix,
+      world: BABYLON.Matrix
+    ): Vertex {
+      let point2d = BABYLON.Vector3.TransformCoordinates(
+        vertex.Coordinates,
+        transMat
+      );
 
-      let x = (point.x * this.workingWidth + this.workingWidth / 2.0) >> 0;
-      var y = (-point.y * this.workingHeight + this.workingHeight / 2.0) >> 0;
+      let point3dWorld = BABYLON.Vector3.TransformCoordinates(
+        vertex.Coordinates,
+        world
+      );
 
-      return new BABYLON.Vector3(x, y, point.z);
+      let normal3dWorld = BABYLON.Vector3.TransformCoordinates(
+        vertex.Normal,
+        world
+      );
+
+      let x = (point2d.x * this.workingWidth + this.workingWidth / 2.0) >> 0;
+      var y = (-point2d.y * this.workingHeight + this.workingHeight / 2.0) >> 0;
+
+      return {
+        Coordinates: new BABYLON.Vector3(x, y, point2d.z),
+        WorldCoordinates: point3dWorld,
+        Normal: normal3dWorld,
+      };
     }
 
     public drawPoint(point: BABYLON.Vector3, color: BABYLON.Color4): void {
@@ -125,15 +157,22 @@ module SoftEngine {
     }
 
     public processScanLine(
-      y: number,
-      pa: BABYLON.Vector3,
-      pb: BABYLON.Vector3,
-      pc: BABYLON.Vector3,
-      pd: BABYLON.Vector3,
+      data: ScanLineData,
+      va: Vertex,
+      vb: Vertex,
+      vc: Vertex,
+      vd: Vertex,
       color: BABYLON.Color4
     ): void {
-      let gradient1 = pa.y != pb.y ? (y - pa.y) / (pb.y - pa.y) : 1;
-      let gradient2 = pc.y != pd.y ? (y - pc.y) / (pd.y - pc.y) : 1;
+      let pa = va.Coordinates;
+      let pb = vb.Coordinates;
+      let pc = vc.Coordinates;
+      let pd = vd.Coordinates;
+
+      let gradient1 =
+        pa.y != pb.y ? (data.currentY! - pa.y) / (pb.y - pa.y) : 1;
+      let gradient2 =
+        pc.y != pd.y ? (data.currentY! - pc.y) / (pd.y - pc.y) : 1;
 
       let sx = this.interpolate(pa.x, pb.x, gradient1) >> 0; //starting x
       let ex = this.interpolate(pc.x, pd.x, gradient2) >> 0; //ending x
@@ -141,36 +180,77 @@ module SoftEngine {
       let z1: number = this.interpolate(pa.z, pb.z, gradient1);
       let z2: number = this.interpolate(pc.z, pd.z, gradient2);
 
+      let snl = this.interpolate(data.ndotla, data.ndotlb!, gradient1);
+      let enl = this.interpolate(data.ndotlc, data.ndotld!, gradient2);
+
       for (let x = sx; x < ex; x++) {
         let gradient: number = (x - sx) / (ex - sx);
         let z = this.interpolate(z1, z2, gradient);
-        this.drawPoint(new BABYLON.Vector3(x, y, z), color);
+        let ndotl = this.interpolate(snl, enl, gradient);
+        this.drawPoint(
+          new BABYLON.Vector3(x, data.currentY!, z),
+          new BABYLON.Color4(
+            color.r * ndotl!,
+            color.g * ndotl!,
+            color.b * ndotl!,
+            1
+          )
+        );
       }
     }
 
+    public computeNDotL(
+      vertex: BABYLON.Vector3,
+      normal: BABYLON.Vector3,
+      lightPosition: BABYLON.Vector3
+    ) {
+      let lightDir = lightPosition.subtract(vertex);
+      normal.normalize();
+      lightDir.normalize()
+      return Math.max(0, BABYLON.Vector3.Dot(normal, lightDir));
+    }
+
     public drawTriangle(
-      p1: BABYLON.Vector3,
-      p2: BABYLON.Vector3,
-      p3: BABYLON.Vector3,
+      v1: Vertex,
+      v2: Vertex,
+      v3: Vertex,
       color: BABYLON.Color4
     ): void {
-      if (p1.y > p2.y) {
-        var temp = p2;
-        p2 = p1;
-        p1 = temp;
+      if (v1.Coordinates.y > v2.Coordinates.y) {
+        var temp = v2;
+        v2 = v1;
+        v1 = temp;
       }
 
-      if (p2.y > p3.y) {
-        var temp = p2;
-        p2 = p3;
-        p3 = temp;
+      if (v2.Coordinates.y > v3.Coordinates.y) {
+        var temp = v2;
+        v2 = v3;
+        v3 = temp;
       }
 
-      if (p1.y > p2.y) {
-        var temp = p2;
-        p2 = p1;
-        p1 = temp;
+      if (v1.Coordinates.y > v2.Coordinates.y) {
+        var temp = v2;
+        v2 = v1;
+        v1 = temp;
       }
+
+      let p1 = v1.Coordinates;
+      let p2 = v2.Coordinates;
+      let p3 = v3.Coordinates;
+
+      // let vnFace = v1.Normal.add(v2.Normal.add(v3.Normal)).scale(1 / 3);
+
+      // let centerPoint = v1.WorldCoordinates?.add(
+      //   v2.WorldCoordinates?.add(v3.WorldCoordinates)
+      // )?.scale(1 / 3);
+
+      let lightPos = new BABYLON.Vector3(0, -30, 50);
+
+      let nl1 = this.computeNDotL(v1.WorldCoordinates, v1.Normal, lightPos);
+      let nl2 = this.computeNDotL(v2.WorldCoordinates, v2.Normal, lightPos);
+      let nl3 = this.computeNDotL(v3.WorldCoordinates, v3.Normal, lightPos);
+
+      let data: ScanLineData = {};
 
       let dP1P2: number;
       let dP1P3: number;
@@ -184,19 +264,39 @@ module SoftEngine {
       } else dP1P3 = 0;
 
       if (dP1P2 > dP1P3) {
-        for (var y = p1.y >> 0; y <= p3.y >> 0; y++) {
+        for (let y = p1.y >> 0; y <= p3.y >> 0; y++) {
+          data.currentY = y;
+
           if (y < p2.y) {
-            this.processScanLine(y, p1, p3, p1, p2, color);
+            data.ndotla = nl1;
+            data.ndotlb = nl3;
+            data.ndotlc = nl1;
+            data.ndotld = nl2;
+            this.processScanLine(data, v1, v3, v1, v2, color);
           } else {
-            this.processScanLine(y, p1, p3, p2, p3, color);
+            data.ndotla = nl1;
+            data.ndotlb = nl3;
+            data.ndotlc = nl2;
+            data.ndotld = nl3;
+            this.processScanLine(data, v1, v3, v2, v3, color);
           }
         }
       } else {
-        for (var y = p1.y >> 0; y <= p3.y >> 0; y++) {
+        for (let y = p1.y >> 0; y <= p3.y >> 0; y++) {
+          data.currentY = y;
+
           if (y < p2.y) {
-            this.processScanLine(y, p1, p2, p1, p3, color);
+            data.ndotla = nl1;
+            data.ndotlb = nl2;
+            data.ndotlc = nl1;
+            data.ndotld = nl3;
+            this.processScanLine(data, v1, v2, v1, v3, color);
           } else {
-            this.processScanLine(y, p2, p3, p1, p3, color);
+            data.ndotla = nl2;
+            data.ndotlb = nl3;
+            data.ndotlc = nl1;
+            data.ndotld = nl3;
+            this.processScanLine(data, v2, v3, v1, v3, color);
           }
         }
       }
@@ -263,11 +363,13 @@ module SoftEngine {
           let vertexB = cMesh.Vertices[currentFace.B];
           let vertexC = cMesh.Vertices[currentFace.C];
 
-          let pixelA = this.project(vertexA, transformMat);
-          let pixelB = this.project(vertexB, transformMat);
-          let pixelC = this.project(vertexC, transformMat);
-          let color: number =
-            0.25 + ((j % cMesh.Faces.length) / cMesh.Faces.length) * 0.75;
+          let pixelA = this.project(vertexA, transformMat, worldMat);
+          let pixelB = this.project(vertexB, transformMat, worldMat);
+          let pixelC = this.project(vertexC, transformMat, worldMat);
+          // let color: number =
+          //   0.25 + ((j % cMesh.Faces.length) / cMesh.Faces.length) * 0.75;
+
+          let color = 1.0
           this.drawTriangle(
             pixelA,
             pixelB,
@@ -299,27 +401,19 @@ module SoftEngine {
 
     private CreateMeshesFromJSON(jsonObject): Mesh[] {
       let meshes: Mesh[] = [];
-      // console.log(jsonObject);
       for (let meshI = 0; meshI < jsonObject.meshes.length; meshI++) {
-        let verticesArr: number[] = jsonObject.meshes[meshI].positions;
-        let indicesArr: number[] = jsonObject.meshes[meshI].indices;
-        let uvCount: number = jsonObject.meshes[meshI].uvs.length / 2;
-        let uvArr: number[] = jsonObject.meshes[meshI].uvs;
+        let verticesArr: number[] = jsonObject.meshes[meshI].positions
+          ? jsonObject.meshes[meshI].positions
+          : [];
+        let indicesArr: number[] = jsonObject.meshes[meshI].indices
+          ? jsonObject.meshes[meshI].indices
+          : [];
+        let uvArr: number[] = jsonObject.meshes[meshI].uvs
+          ? jsonObject.meshes[meshI].uvs
+          : [];
         let verticesStep = 3;
-        // console.log(jsonObject.meshes[meshI].positions.len)
-        // switch (uvCount) {
-        //   case 0:
-        //     verticesStep = 6;
-        //     break;
-        //   case 1:
-        //     verticesStep = 8;
-        //     break;
-        //   case 2:
-        //     verticesStep = 10;
-        //     break;
-        // }
 
-        console.log(verticesArr);
+        // console.log(verticesArr);
 
         let vertexCount = verticesArr.length / verticesStep;
         let faceCount = indicesArr.length / 3;
@@ -330,16 +424,25 @@ module SoftEngine {
         );
 
         for (let i = 0; i < vertexCount; i++) {
-          var x = verticesArr[i * verticesStep];
-          var y = verticesArr[i * verticesStep + 1];
-          var z = verticesArr[i * verticesStep + 2];
-          mesh.Vertices[i] = new BABYLON.Vector3(x, y, z);
+          let x = verticesArr[i * verticesStep];
+          let y = verticesArr[i * verticesStep + 1];
+          let z = verticesArr[i * verticesStep + 2];
+
+          let nx = verticesArr[i * verticesStep + 3];
+          let ny = verticesArr[i * verticesStep + 4];
+          let nz = verticesArr[i * verticesStep + 5];
+
+          mesh.Vertices[i] = {
+            Coordinates: new BABYLON.Vector3(x, y, z),
+            Normal: new BABYLON.Vector3(nx, ny, nz),
+            WorldCoordinates: null,
+          };
         }
 
         for (let i = 0; i < faceCount; i++) {
           let A = indicesArr[i * 3];
-          var B = indicesArr[i * 3 + 1];
-          var C = indicesArr[i * 3 + 2];
+          let B = indicesArr[i * 3 + 1];
+          let C = indicesArr[i * 3 + 2];
 
           mesh.Faces[i] = {
             A,
